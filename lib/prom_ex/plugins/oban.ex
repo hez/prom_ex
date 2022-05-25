@@ -77,7 +77,7 @@ if Code.ensure_loaded?(Oban) do
 
       [
         oban_supervisor_init_event_metrics(metric_prefix, keep_function_filter),
-        oban_job_event_metrics(metric_prefix, keep_function_filter),
+        oban_job_event_metrics(metric_prefix, oban_supervisors),
         oban_producer_event_metrics(metric_prefix, keep_function_filter),
         oban_circuit_breaker_event_metrics(metric_prefix, keep_function_filter)
       ]
@@ -177,7 +177,7 @@ if Code.ensure_loaded?(Oban) do
       }
     end
 
-    defp oban_job_event_metrics(metric_prefix, keep_function_filter) do
+    defp oban_job_event_metrics(metric_prefix, oban_supervisors) do
       job_attempt_buckets = [1, 5, 10]
       job_duration_buckets = [10, 100, 500, 1_000, 5_000, 20_000]
 
@@ -195,7 +195,7 @@ if Code.ensure_loaded?(Oban) do
             tag_values: &job_complete_tag_values/1,
             tags: [:name, :queue, :state, :worker],
             unit: {:native, :millisecond},
-            keep: keep_function_filter
+            keep: &supervisor_filter(&1, oban_supervisors)
           ),
           distribution(
             metric_prefix ++ [:job, :queue, :time, :milliseconds],
@@ -208,7 +208,7 @@ if Code.ensure_loaded?(Oban) do
             tag_values: &job_complete_tag_values/1,
             tags: [:name, :queue, :state, :worker],
             unit: {:native, :millisecond},
-            keep: keep_function_filter
+            keep: &supervisor_filter(&1, oban_supervisors)
           ),
           distribution(
             metric_prefix ++ [:job, :inserted, :time, :milliseconds],
@@ -235,7 +235,7 @@ if Code.ensure_loaded?(Oban) do
             ],
             tag_values: &job_complete_tag_values/1,
             tags: [:name, :queue, :state, :worker],
-            keep: keep_function_filter
+            keep: &supervisor_filter(&1, oban_supervisors)
           ),
           distribution(
             metric_prefix ++ [:job, :exception, :duration, :milliseconds],
@@ -248,7 +248,7 @@ if Code.ensure_loaded?(Oban) do
             tag_values: &job_exception_tag_values/1,
             tags: [:name, :queue, :state, :worker, :kind, :error],
             unit: {:native, :millisecond},
-            keep: keep_function_filter
+            keep: &supervisor_filter(&1, oban_supervisors)
           ),
           distribution(
             metric_prefix ++ [:job, :exception, :queue, :time, :milliseconds],
@@ -262,7 +262,7 @@ if Code.ensure_loaded?(Oban) do
             tag_values: &job_exception_tag_values/1,
             tags: [:name, :queue, :state, :worker, :kind, :error],
             unit: {:native, :millisecond},
-            keep: keep_function_filter
+            keep: &supervisor_filter(&1, oban_supervisors)
           ),
           distribution(
             metric_prefix ++ [:job, :exception, :attempts],
@@ -276,7 +276,7 @@ if Code.ensure_loaded?(Oban) do
             ],
             tag_values: &job_exception_tag_values/1,
             tags: [:name, :queue, :state, :worker],
-            keep: keep_function_filter
+            keep: &supervisor_filter(&1, oban_supervisors)
           )
         ]
       )
@@ -463,18 +463,9 @@ if Code.ensure_loaded?(Oban) do
     defp filter_snoozed_jobs(%{state: :snoozed}, _original_keep_filter), do: false
     defp filter_snoozed_jobs(metadata, original_keep_filter), do: original_keep_filter.(metadata)
 
-    defp keep_oban_instance_metrics(oban_supervisors) do
-      fn
-        %{conf: %{name: name}} ->
-          MapSet.member?(oban_supervisors, name)
-
-        %{name: name} ->
-          MapSet.member?(oban_supervisors, name)
-
-        _ ->
-          false
-      end
-    end
+    defp supervisor_filter(%{conf: %{name: name}}, oban_supervisors), do: MapSet.member?(oban_supervisors, name)
+    defp supervisor_filter(%{name: name}, oban_supervisors), do: MapSet.member?(oban_supervisors, name)
+    defp supervisor_filter(_, _), do: false
 
     defp oban_init_tag_values(%{conf: config}) do
       plugins_string_list =
